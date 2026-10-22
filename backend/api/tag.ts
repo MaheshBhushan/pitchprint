@@ -11,11 +11,12 @@
  * Runtime: Vercel Node serverless. Requires ANTHROPIC_API_KEY in the env.
  */
 
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+import type { VercelRequest, VercelResponse } from "../src/api/vercel.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { tagProfile } from "../src/twin/tagProfile.js";
 import { enforceReviewGate } from "../src/twin/reviewGate.js";
 import { apiError, corsHeaders, parseFounderInput } from "../src/api/http.js";
+import { clientIp, takeToken } from "../src/api/rateLimit.js";
 
 function applyHeaders(res: VercelResponse, headers: Record<string, string>) {
   for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
@@ -78,6 +79,16 @@ export default async function handler(
     res
       .status(500)
       .json(apiError("internal_error", "Server is missing ANTHROPIC_API_KEY."));
+    return;
+  }
+
+  // Every accepted request spends model credits: brake per IP and per instance.
+  const retryAfter = takeToken(clientIp(req.headers, req.socket?.remoteAddress));
+  if (retryAfter > 0) {
+    res.setHeader("Retry-After", String(retryAfter));
+    res
+      .status(429)
+      .json(apiError("rate_limited", `Too many requests. Try again in ${retryAfter} seconds.`));
     return;
   }
 

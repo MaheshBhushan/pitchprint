@@ -122,8 +122,20 @@ validated `ImpactProfile` (schema in `backend/src/contract/schema.ts`).
 | 200 | Valid `ImpactProfile` (`X-Tagging-Attempts` header: 1 = clean, 2 = repaired) |
 | 400 | Body failed validation (`error.issues` lists the problems) |
 | 405 | Method other than POST |
+| 429 | Rate limit hit (`Retry-After` header gives seconds to wait) |
 | 500 | Server missing `ANTHROPIC_API_KEY` |
 | 502 | Model output failed the contract even after one repair |
+
+Abuse controls (each accepted request spends Anthropic credits):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TAG_RATE_LIMIT_PER_IP` | `5` | Requests per client IP per window |
+| `TAG_RATE_LIMIT_GLOBAL` | `60` | Requests per serverless instance per window |
+| `TAG_RATE_LIMIT_WINDOW_SEC` | `600` | Window length |
+| `ALLOWED_ORIGINS` | localhost dev ports | Extra exact origins allowed cross-origin (comma-separated). The project's own Vercel URL is always allowed; no wildcard domains |
+
+The limits live in each warm instance's memory, so they are a best-effort brake. Set a spend limit on the Anthropic key too.
 
 ## Repository structure
 

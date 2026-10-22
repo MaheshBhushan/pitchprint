@@ -4,9 +4,10 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+import type { VercelRequest, VercelResponse } from "./vercel.js";
 import { enforceReviewGate } from "../twin/reviewGate.js";
 import { parseFounderInput, corsOrigin } from "./http.js";
+import { __resetRateLimits } from "./rateLimit.js";
 import {
   ImpactProfile,
   DIMENSION_ORDER,
@@ -100,7 +101,11 @@ async function main() {
   });
   check("validation accepts complete input", good.ok === true);
   check("cors echoes allowed localhost origin", corsOrigin("http://localhost:3000") === "http://localhost:3000");
-  check("cors allows lovableproject subdomain", corsOrigin("https://abc.lovableproject.com") === "https://abc.lovableproject.com");
+  check("cors rejects arbitrary lovableproject subdomain", corsOrigin("https://abc.lovableproject.com") !== "https://abc.lovableproject.com");
+  check("cors rejects arbitrary vercel.app subdomain", corsOrigin("https://attacker.vercel.app") !== "https://attacker.vercel.app");
+  process.env.VERCEL_PROJECT_PRODUCTION_URL = "zollhof-twin.vercel.app";
+  check("cors allows the project's own deployment", corsOrigin("https://zollhof-twin.vercel.app") === "https://zollhof-twin.vercel.app");
+  delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
   check("cors falls back for unknown origin", corsOrigin("https://evil.example.com") !== "https://evil.example.com");
 
   // --- T4.1 handler: method guard ---
@@ -149,6 +154,33 @@ async function main() {
     check("valid POST returns 200", captured.status === 200);
     check("response is a valid ImpactProfile", ImpactProfile.safeParse(captured.body).success);
     check("response has enforced risk flag", (captured.body as ImpactProfile)?.dimensions?.find((d) => d.dimension === "risk")?.flaggedForReview === true);
+  }
+
+  // --- rate limit: the LLM is not called once an IP exhausts its window ---
+  {
+    __resetRateLimits();
+    process.env.TAG_RATE_LIMIT_PER_IP = "2";
+    let calls = 0;
+    const validJson = JSON.stringify(ungatedProfile());
+    __setClientFactory(
+      () => ({ messages: { create: async () => (calls++, fakeMessage(validJson)) } }) as unknown as Anthropic,
+    );
+    const statuses: number[] = [];
+    for (const ip of ["198.51.100.7", "198.51.100.7", "198.51.100.7", "203.0.113.9"]) {
+      const { res, captured } = mockRes();
+      await handler(
+        {
+          method: "POST",
+          headers: { "x-forwarded-for": `${ip}, 10.0.0.1` },
+          body: { name: "VoltForge", sector: "Climate hardware", narrative: "Grid batteries.", maturity: "pilot" },
+        } as unknown as VercelRequest,
+        res,
+      );
+      statuses.push(captured.status);
+    }
+    check("third request from one IP is 429", statuses.join(",") === "200,200,429,200");
+    check("rate-limited request never reaches the model", calls === 3);
+    delete process.env.TAG_RATE_LIMIT_PER_IP;
   }
 
   if (failures) {
