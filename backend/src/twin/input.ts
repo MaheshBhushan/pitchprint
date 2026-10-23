@@ -10,19 +10,19 @@ import { MaturityTier } from "../contract/schema.js";
 
 export const FounderInput = z.object({
   /** Startup name. */
-  name: z.string().min(1),
+  name: z.string().min(1).max(200),
   /** Sector / domain in the founder's own words (e.g. "Climate hardware"). */
-  sector: z.string().min(1),
+  sector: z.string().min(1).max(200),
   /** Freeform description of what the startup does and the change it seeks. */
-  narrative: z.string().min(1),
+  narrative: z.string().min(1).max(20000),
   /** Optional structured Theory-of-Change hints; the LLM fills gaps. */
   toc: z
     .object({
-      input: z.string().optional(),
-      activity: z.string().optional(),
-      output: z.string().optional(),
-      outcome: z.string().optional(),
-      impact: z.string().optional(),
+      input: z.string().max(5000).optional(),
+      activity: z.string().max(5000).optional(),
+      output: z.string().max(5000).optional(),
+      outcome: z.string().max(5000).optional(),
+      impact: z.string().max(5000).optional(),
     })
     .partial()
     .optional(),
